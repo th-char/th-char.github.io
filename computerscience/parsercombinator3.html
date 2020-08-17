@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+  <!-- Basic Page Needs
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta charset="utf-8">
+  <title>Home</title>
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+  <!-- Mobile Specific Metas
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- FONT
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link href='https://fonts.googleapis.com/css?family=Gelasio&display=swap' rel='stylesheet' type='text/css'>
+
+  <!-- CSS
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link rel="stylesheet" href="../css/normalize.css">  
+  <link rel="stylesheet" href="../css/skeleton.css">
+  <link rel="stylesheet" href="../css/custom.css">
+
+  <!-- Favicon
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <!-- <link rel="icon" type="image/png" href="images/favicon.png"> -->
+
+</head>
+<body>
+
+  <!-- Primary Page Layout
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <header>
+    <div class="six columns" id="introleftside">
+      <div class="eleven columns">
+        <h1 class="bigtitle">Tools of the Trade</h1>
+        <p class="smalltitle">A tutorial by Theo Charalambous</p>
+      </div>
+    </div>
+    <div class="six columns" id="introrightside">
+      <div class="eleven columns" style="margin-left: 4%;">
+        <h3> The Parser Combinator Series </h3>
+        <a href="parsercombinator1.html">Chapter 1: Writing Our First Parser</a><br>
+        <a href="parsercombinator2.html">Chapter 2: Functors, Monads, Applicatives</a><br>
+        <a href="parsercombinator3.html">Chapter 3: Tools of the Trade</a><br>
+        <a href="parsercombinator4.html">Chapter 4: Combinating Parser Combinators</a><br>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Introduction</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Hello again, this tutorial is going to cover the instances for the functor, monad and applicative 
+          for parsers. Then, we can begin the action with some primitive combintors that we will be able 
+          to use to construct more complex parsers soon.  
+        </p>
+        <p>
+          Just as a little refresher, let's remind ourselves of the type of a parser.
+        </p>
+        <pre>
+    Parser a :: Parser (String -> Maybe (a, String))</pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Functor Instance</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          To begin, let's implement a functor instance for our parsers. This means that we will need to create 
+          a definition for <code>fmap :: (a -> b) -> Parser a -> Parser b</code>. Essentially, if we think of 
+          our parsers as structures that take strings and turn them into some value of type <code>a</code>,
+          then <code>fmap</code> so apply a function to the parser output to turn the output into a value 
+          of type <code>b</code>. Let's try and write this ! 
+        </p>
+        <pre>
+    instance Functor Parser where 
+      fmap (Parser p) f 
+        = Parser (\inp -> case (p inp) of 
+                            Just res -> Just (f res)
+                            Nothing  -> Nothing) </pre>
+        <p>
+          Hopefully it's clear what is happening here. If our original parser succeeds, then we take the result 
+          and apply <code>f</code> to it, but if the result fails, then we just return a failure. However,
+          we can make this much more elegant! The <code>Maybe</code> type is already a functor itself, 
+          so we can instead write 
+        </p>
+        <pre>
+    instance Functor Parser where 
+        fmap (Parser p) f = Parser (\inp -> f <$> p inp) 
+        -- Note that f <$> p inp === fmap f (p inp)</pre>
+        <p>
+          This is very useful in itself - see the first exercise to see how this can be used 
+          in practice. But the truth is that this is stepping stone to what we really want to 
+          do, which is make our parsers monadic.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Applicative Instance</h5> 
+      </div>
+      <div class="nine columns">
+        <p>
+          To implement an applicative instance we need to implement <code>pure</code> and <code><*></code>.
+          The definition for the former is not particularly complicated, the minimal definition is that 
+          <code>pure x</code> is the parser that doesn't parse anything, and returns <code>x</code>
+        </p>
+        <p>
+          Next we want to implement <code><*> :: Parser (a -> b) -> Parser a -> Parser b</code>. What 
+          this means is that the first parser returns a function when it successfully parses, so 
+          the semantics of <code><*></code> is that it creates a new parser that first parses 
+          the inout to return a function, then parses the remaining input to return a value 
+          of type <code>a</code>, and finally it returns a <code>Maybe (b, String)</code>
+          by applying the function to the term of type <code>a</code>. Hopefully this gives an 
+          intuition of how to chain these parsers together, let's first begin with a definition that 
+          is functionally correct, but terribly written:
+        </p>
+        <pre>
+    Parser a <*> Parser b 
+      = Parser $ \inp -> case res of 
+                     Nothing        -> Nothing 
+                     Just (f, inp') -> case res' of 
+                                         Nothing         -> Nothing 
+                                         Just (x, inp'') -> Just (f x, inp'')
+      where   
+        res  = a inp  
+        res' = b inp'</pre>
+        <p>
+          This is an extremely naive implementation, at each step we have to check if the 
+          computation has failed, which leads to these nested cases. Fortunately though, 
+          <code>Maybe</code> is the monad that represents the success or failure of a 
+          computation, and the implementation of its monadic functions represents this,
+          so we can simply use <code>do</code> notation in the context of the <code>Maybe</code>
+          monad to handle the case of a failed computation at any stage in the computation,
+          so putting these ideas together, along with the definition of <code>pure</code>, 
+          we get
+        </p>
+        <pre>
+    instance Applicative Parser where 
+      pure x = Parser $ \input -> Just (x, inp)
+
+      Parser p <*> Parser q
+        = Parser $ inp -> do 
+            (f, inp') <- p inp 
+            (x, inp'') <- q inp' 
+            return (f x, inp'')</pre>
+        <p>
+          Hopefully you can understand how this new implementation works, if not, it may be worth
+          experimenting with the <code>Maybe</code> monad for a bit - essentially though, if any 
+          step in the do notation returns a <code>Nothing</code>, the entire thing returns a 
+          <code>Nothing</code>.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Monad Instance</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Fortunately, the monad instance is very similar to the applicative instance, so we don't have to 
+          spend much time thinking about this one. <code>return</code> has to have the same definition as 
+          <code>pure</code>, so the only thing we must worry about is the definition of 
+          <code>(>>=) :: Parser a -> (a -> Parser b) -> Parser b</code>.
+        </p>
+        <p>
+          From the type signature of bind, we can kind of get a idea of what's going to happen. First, 
+          we parse the input to get a value of type <code>a</code>, then we use that to produce a 
+          <code>Parser b</code>, which we then use to parse the remaining input to produce a value of 
+          type <code>b</code>. Hopefully this gives a bit of an intuition and now we can look at 
+          implementation.
+        </p>
+        <pre>
+    instance Monad Parser where 
+      return = pure 
+      Parser a >>= f 
+        = Parser $ \inp -> do 
+            (x, inp') <- a inp 
+            let Parser b = f x
+            (y, inp'') <- b inp' 
+            return (y, inp'') </pre>
+        <p>
+          It's worth taking some time meditating on this to fully understand what's going on, but we 
+          use the monadic context of <code>Maybe</code> to catch failed computations like we did 
+          when we implemented the applicative instance.
+        </p>
+        <p>
+          For the most part, we want to use applicatives as much as possible as they give a static 
+          program structure, but monadic parsers allow us to perform branching execution like 
+          we would have in an if statement, look at the exercises for an example.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Alternative Instance</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          At this point, you are probably sick of defining instances for our parsers, but I promise 
+          this is the last one. Now, what even is an Alternative ? If you've never heard of it, let's 
+          ask ghci what Alternative is 
+        </p>
+        <pre>
+  > :i Alternative
+  class Applicative f => Alternative (f :: * -> *) where
+  empty :: f a
+  (<|>) :: f a -> f a -> f a
+  some :: f a -> f [a]
+  many :: f a -> f [a]
+  {-# MINIMAL empty, (<|>) #-} </pre>
+          <p>
+            Okay, so there's quite a bit going on here. If you search up alternatives in the  
+            <a href="https://hackage.haskell.org/package/base-4.6.0.1/docs/Control-Applicative.html#t:Alternative">Hackage documentation</a>,
+            it says that an Alternative is "a monoid on applicative functors." At this point, 
+            the algebraist is very happy, but for the non-algebraist, let's take a look at this functions 
+            and try to understand what's happening. 
+          </p>
+          <p>
+            A way to get an intuition for what's going on (although not the true mathematical way to 
+            understand the motivation behind the structure - but such is the way of Haskell, see monads...)
+            is to think of Alternative as defining a choice scheme for a type. <code>empty</code> refers 
+            to making no choice at all (the "nothing choice" probably captures the concept better),
+            and <code><|></code> refers to picking between two things, although generally we can see it 
+            as we try to pick the first argument, unless it returns a bad choice (what exactly a bad 
+            choice is depends on the implementation).
+          </p>
+          <p>
+            I think to understand this it would be useful to look at how Alternative is defined for 
+            <code>Maybe</code>. First, the nothing choice is very obviously <code>Nothing</code>,
+            and then 
+          </p>
+          <pre>
+  Just a  <|> _ = Just a 
+  Nothing <|> x = x  </pre>
+          <p>
+            So if the first choice is good, we pick that, otherwise we just choose whatever the second 
+            choice is - so if both a "bad" choices, then we return <code>Nothing</code>. 
+            However, we also have functions called <code>some</code> and <code>many</code>. They 
+            are both very similar: <code>many f</code> keeps running <code>f</code> until it fails
+            (ie zero or more times),
+            and <code>some f</code> tries to run <code>f</code> one or more times. I think it's a 
+            bit hard to understand with <code>Maybe</code>, but it's very clear with our parsers,
+            so we will go into more detail after we implement Alternative for our parsers.
+          </p>
+          <p>
+            The "nothing choice" in the context of parsers is the parser that always fails. Making a 
+            choice between two parsers corresponds to trying to parse the input with the first parser, 
+            and if that fails, trying with the second parser. What this looks like in code is 
+          </p>
+          <pre>
+  instance Alternatice Parser where 
+    empty = Parser $ \inp -> Nothing 
+    Parser p <|> Parser q 
+      = Parser $ \inp -> case p inp of 
+                           Just (x, inp) -> Just (x, inp)
+                           Nothing       -> q inp  </pre>
+          <p>
+            I wrote this implementation with the intention of being expressive, we can write a much 
+            prettier implementation though - the main improvement coming from the fact that <code>Maybe</code>
+            is already alternative so this pattern match is unneeded.
+          </p>
+          <pre>
+  instance Alternatice Parser where 
+    empty = Parser $ const Nothing
+    Parser p <|> Parser q = Parser $ \inp -> p inp <|> q inp</pre>
+          <p>
+            This is much more elegant, the good thing here is that we now have the ability to 
+            choose between parsers. We also now have <code>many</code> and <code>some</code>,
+            so <code>many p</code> creates a new parser that will repeatedly try and 
+            apply the parser <code>p</code> until it fails.
+          </p>
+          <p>
+            In terms of our parsers, the usefulness of alternatives are very intuitive, suppose we have a grammar like 
+          </p>
+          <pre>
+  Instruction := "Up" | "Down"</pre>
+          <p>
+            What this means is that an instruction can be <code>"Up"</code> <i>or</i> <code>"Down"</code>. 
+            We can encode the choice between the two options very simply, it would just be
+          <pre>
+  pInstruction = pUp <|> pDown</pre>
+          <p>
+            So as you might imagine, this is going to be ubiqutous throughout our entire parsing journey.
+          </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Finishing Up</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          This part of the series might not have been the most exciting, but we know have 
+          all the setup we need to start doing anything we could ever want to do with 
+          our parsers, now we can start constructing more and more exciting parsers 
+          to be able to parse an entire grammar!
+        </p>
+      </div>
+    </div>
+      
+      
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+</div>
+
+<!-- End Document
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+</body>
+</html>

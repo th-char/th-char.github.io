@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+  <!-- Basic Page Needs
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta charset="utf-8">
+  <title>Home</title>
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+  <!-- Mobile Specific Metas
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- FONT
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link href='https://fonts.googleapis.com/css?family=Gelasio&display=swap' rel='stylesheet' type='text/css'>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,700;1,400&display=swap"
+    rel="stylesheet">
+
+  <!-- CSS
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link rel="stylesheet" href="../css/normalize.css">
+  <link rel="stylesheet" href="../css/skeleton.css">
+  <link rel="stylesheet" href="../css/custom.css">
+
+  <!-- Favicon
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <!-- <link rel="icon" type="image/png" href="images/favicon.png"> -->
+
+</head>
+
+<body>
+
+  <!-- Primary Page Layout
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <header>
+    <div class="six columns" id="introleftside">
+      <div class="eleven columns">
+        <h1 class="bigtitle">Combinating Parser Combinators</h1>
+        <p class="smalltitle">A tutorial by Theo Charalambous</p>
+      </div>
+    </div>
+    <div class="six columns" id="introrightside">
+      <div class="eleven columns" style="margin-left: 4%;">
+        <h3> The Parser Combinator Series </h3>
+        <a href="parsercombinator1.html">Chapter 1: Writing Our First Parser</a><br>
+        <a href="parsercombinator2.html">Chapter 2: Functors, Monads, Applicatives</a><br>
+        <a href="parsercombinator3.html">Chapter 3: Tools of the Trade</a><br>
+        <a href="parsercombinator4.html">Chapter 4: Combinating Parser Combinators</a><br>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Introduction</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          We have everything we need to start build all the parsers we could possibly want.
+          This is where is gets exciting so I wont spend any time giving an introduction today
+          and we can just jump straight into it. The things covered in this chapter
+          were mostly led by looking at the <a href="https://hackage.haskell.org/package/parsec">Parsec Hackage docs</a>
+          and choosing the parsers that I thought were important.
+        </p>
+        <p>
+          For motivation, I thought it would be fun if we tried to construct parsers for an actual grammar.
+          I decided to go with a grammar that defines a calculator. In a sort of adapted EBNF, here it is
+        </p>
+        <pre>
+  SimpleExp := Num | '(' Exp ')'
+  Exp       := SimpleExp | UnOpExpr | BinOpExpr | FuncApp
+  UnOpExpr  := '-' SimpleExp
+             | 'sin' SimpleExp 
+             | 'cos' SimpleExp 
+             | 'tan' SimpleExp
+  BinOpExpr := Exp + Exp  -- lowest precedence
+             | Exp - Exp 
+             | Exp * Exp 
+             | Exp / Exp  
+             | Exp ^ Exp  -- highest precedence
+  FuncDef   := Ident '(' [Var {', ' Var}] ')' '=' Exp
+  Var       := Ident
+  FuncApp   := Ident '(' [Exp {, Exp}] ')'
+  Ident     := String</pre>
+        <p>
+          So a few examples of things we would be able to write are:
+        </p>
+        <pre>
+  f(x, y) = x + y 
+  5 + Sin (5 * 3) + 3 * 7
+  g(x) = x
+  1 + (2 + 3) + g(4) + f(2, 3)  </pre>
+        <p>
+          The final thing we need is a the data types to encode this structure in Haskell
+        </p>
+        <!--
+        <pre>
+  data Expr    = Num Float 
+               | VarExpr Var
+               | UnOpExpr UnOp Expr 
+               | BinOpExpr BinOp Expr Expr 
+               | FuncApp String [Expr]
+  data Var     = Var String
+  data UnOp    = Negate | Sin | Cos | Tan
+  data BinOp   = Add    | Sub | Mul | Div 
+  data FuncDef = FuncDef String [Var] Expr</pre> -->
+        <pre>
+  data Expr    = Num Float 
+               | Var String
+               | UnOpExpr UnOp Expr 
+               | BinOpExpr BinOp Expr Expr 
+               | FuncApp String [Expr]
+  data UnOp    = Negate | Sin | Cos | Tan
+  data BinOp   = Add    | Sub | Mul | Div | Exp
+  data FuncDef = FuncDef String [String] Expr
+</pre>
+        <p>
+          Now we are ready to start, I'm going to try and explain the theory behind these parsers,
+          but I will try and motivate it by specific examples in our calculator language.
+        </p>
+
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>satisfy</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          To begin, we will implement what could arguably be described as one of the most
+          fundemental parsers. It is <code>satisfy :: (Char -> Bool) -> Parser Char</code>
+          which takes a function and successfully parsers the first character of the input only
+          if the function returns <code>True</code> when applied to that function. From the first
+          chapter, we should already be able to do this.
+        </p>
+        <pre>
+  satisfy f = Parser $ \inp -> 
+    case inp of 
+      c:cs -> if f c then Just (c, cs) else Nothing 
+      _    -> Nothing  </pre>
+        <p>
+          If your memory is good, you might realise that this looks very similar to <code>pChar</code>,
+          and in fact we can now redefine it!
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>pChar (again)</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Now that we have <code>satisfy</code>, it means that <code>pChar</code> is trivial. This
+          is the fundemental idea of parser combinators: we gradually add complexity to small parsers
+          to create incredibly complex parsers.
+        </p>
+        <pre>
+  pChar :: Char -> Parser Char
+  pChar c = satisfy (c==)</pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>pString (again)</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          This one is going to be a bit more complex, but I want to use it as an oppotunity to
+          show off all of the work that we did last chapter. We're going to follow the same sort
+          of structure as before, where we parsed each character of the string sequentially. So
+          let's consider the base case <code>pString ""</code>, this is just a parser that parses
+          no input and returns <code>""</code>. Fortunately though, that sounds suspiciously like
+          <code>pure ""</code>, so we're done with the base case!
+        </p>
+        <p>
+          Next, we need to work out what <code>pString (c:cs)</code> should do. The idea now is that
+          we're going to create a parser for <code>c</code> and then combine that with the parser
+          for <code>cs</code>. I think for this one it's best if I write it out first and then
+          explain afterwards, so
+        </p>
+        <pre>
+  pString :: String -> Parser String 
+  pString ""     = pure ""
+  pString (c:cs) = (:) <$> pChar c <*> pString cs</pre>
+        <p>
+          The base case should already be clear. For the recursive case, let's assume that <code>pString cs</code>
+          does exactly what we expect, which is return a parser that parses exactly the string <code>cs</code>,
+          then we also have <code>pChar c</code>. All we need now is some way to combine the two parsers...
+          The logic here is that if we try and parse some input string "combinator"
+          to <code>pString "combin"</code>, then <code>pChar "c"</code> will return <code>Just ('c', "ombinator")</code>
+          and
+          then <code>pString "ombin"</code> will return <code>Just ("ombin", "ator")</code>. So combining these two
+          parsers
+          should correspond to appending "c" to "ombin", ie. <code>(:)</code>.
+        </p>
+        <p>
+          Still it may not be clear, so first let's consider what <code>(:) <$> pChar c</code> does. By our definition
+          of
+          <code>fmap</code>, we apply the function to the parsed result of the parser, so in this case, we will now have
+          the result <code>Just ('c' :, "ombinator")</code>. By looking at the types of each of these functions, make
+          sure
+          your confident with the fact that
+        </p>
+        <pre>
+  (:) <$> pChar c :: Parser (String -> String)
+  pString cs      :: Parser String </pre>
+        <p>
+          Now, it should be quite easy to see just from the types that we need to use <code><*></code>. This is a design
+          pattern that you will get used to. If you have a function of two parameters that you need to apply to the
+          values
+          contained inside two applicatives, then this pattern of <code>f <$> app1 <*> app2</code> is generally what
+          you'd want to use - we're going to use this a lot more
+          so we will have plenty more practise. I think this parser is much more elegant than our original one, and we
+          didn't have to write any low level logic, all we have to do now is consider what our parsers should parser and
+          how we have to combine the results.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Sidenote: <code><:></code></h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          A small sidenote is that the <code>(:) <$> px <*> py</code> pattern can be made slightly more elegant, we do
+          this
+          by defining a new function.
+        </p>
+        <pre>
+  (<:>) :: Parser a -> Parser [a] -> Parser a
+  px <:> py = (:) <$> px <*> py</pre>
+        <p>
+          But you should be able to see that this is not a function that is specific to parsers, and we should always
+          aim to
+          make function types as general as possible, all we really need here is an applicative function, so we can
+          rewrite this
+          as
+        </p>
+        <pre>
+  (<:>) :: Applicative f => f a -> f [a] -> f[a]
+  px <:> py = (:) <$> px <*> py</pre>
+        <p>
+          Hence, the inductive case of our <code>pString</code> parser becomes
+        </p>
+        <pre>
+  pString (c:cs) = pChar c <:> pString cs</pre>
+        <p>
+          It's cleaner than what we had before, and its an additional tool that we can use in the future - what we've
+          done
+          is called "lifting" - we've lifted <code>(:)</code> to an applicative context.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>pSpan</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Another really useful small parser that we will need is <code>pSpan :: (Char -> Bool) -> Parser String</code>
+          It works in a similar way to the normal <code>span :: (a -> Bool) -> [a] -> ([a], [a])</code>. It will
+          continue to parse a string as long as the predicate is satisfied, for example
+        </p>
+        <pre>
+  runParser (pSpan isDigit) "123abc45" == Just ("123", "abc45")
+  runParser (pSpan isSpace) "    abc"  == Just ("    ", "abc")
+  runParser (pSpan isSpace) "abc"      == Nothing </pre>
+        <p>
+          You can see that what this parser does is repeatedly check if the predicate is satisfied after parsing each
+          character,
+          which is like repeatedly applying a <code>satisfy</code> parser until it fails. Finally we get to use our
+          Alternative
+          instance that we defined previously, one of the functions the Alternative class provides is <code>some</code>,
+          which
+          attemps to run the Alternative at least once (which in this case corresponds to successfully parsing a
+          character),
+          so we get
+        </p>
+        <pre>
+  pSpan :: (Char -> Bool) -> Parser String 
+  pSpan f = some (satisfy f)
+  -- or pSpan = some . satisfy
+        </pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>pVar</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Finally we are ready to parse are first part of the grammar! We are going to parse strings, but only strings
+          that
+          contain alphanumeric characters and underscores - however, a variable name cannot start with a number. So the
+          way
+          we can think about this is first we have to parse a letter or an underscore, then we can parse any
+          alphanumeric
+          character or an underscore.
+        </p>
+        <p>
+          First let's construct our small parsers
+        </p>
+        <pre>
+  pUnderscore :: Parser Char 
+  pUnderscore = pChar '_'
+
+  pAlpha :: Parser Char 
+  pAlpha = satisfy isAlpha
+
+  pAlphanumeric :: Parser Char 
+  pAlphanumeric = satisfy isAlphaNum</pre>
+        <p>
+          First let's think how to parse any alphanumeric character or an underscore. It turns out that the answer is
+          exactly
+          in the question, using <code><|></code> from Alternative, we can very easily express this as
+        </p>
+        <pre>
+  pAlphanumeric <|> pUnderscore :: Parser Char</pre>
+        <p>
+          After our first character, there may be more than one alphanumeric/"_" (there may also be zero), so to allow
+          for parsing
+          some arbitrary number of characters, we can use <code>many</code>, which is related to <code>some</code> from
+          before,
+          except it also succeeds if the supplied parser succeeds 0 times.
+        </p>
+        <pre>
+  many (pAlphanumeric <|> pUnderscore) :: Parser [Char]</pre>
+        <p>
+          However, we need to guarantee that the first character is a alphanumeric character, and then we just combine
+          that with
+          the rest of the parsed string, looking at the types of <code>pAlpha</code> and
+          <code>many (pAlphanumeric <|> pUnderscore)</code>,
+          we can see that we simply need to cons the result of the first parser to the second.
+        </p>
+        <p>
+          The final step is to wrap this all in a <code>Var</code>. The type constructor is a function, so we can simply
+          fmap it into our
+          result to turn <code>Parser String</code> into <code>Parser Expr</code>
+        </p>
+        <pre>
+  pVar :: Parser Expr 
+  pVar = Var <$> pAlpha <:> many (pAlphanumeric <|> pUnderscore)</pre>
+        <p>
+          So finally, we can parse our first part of the grammar, let's try it !
+        </p>
+        <pre>
+  > runParser pVar "num1 = 5"
+  Just (Var "num1"," = 5")
+  > runParser pVar "num1_add_5 + 5"
+  Just (Var "num1_add_5"," + 5")
+  > runParser pVar "1num"
+  Nothing</pre>
+        <p>
+          This is our first big success ! A lot of the other parsers will follow a similar process, we essential build
+          up the grammar from
+          small parsers and some intelligent combining.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>pNum</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          This has been quite a long tutorial, so I think we will do one more parser thats similar to <code>pVar</code>
+          to finish off.
+          So what is a float, well we can think of it as an integer that might have a decimal point and some numbers
+          after the decimal point.
+          Let's start with the easiest bit and do the integer part. What we want to do is just parse a contiguous
+          sequence of numbers,
+          which is exactly the job of <code>pSpan</code>, we do this with
+        </p>
+        <pre>
+  span isDigit</pre>
+        <p>
+          Let's see how it works:
+        </p>
+        <pre>
+  > runParser (pSpan isDigit) "12345" 
+  Just ("12345","")
+  > runParser (pSpan isDigit) "12345.6789"
+  Just ("12345",".6789")</pre>
+        <p>
+          So it works for integers, but as soon as the number has a decimal place, it doesnt do what we want. So let's
+          construct a parser for the non-integer part. It will start with a '.' and then be followed by some digits,
+          I'll leave this one as an exercise, we will call it <code>pDecimalPart</code> for lack of a better name.
+        </p>
+        <p>
+          So now we a have a parser for the integer part, and a parser for the decimal part, we need some way to
+          combine them. What we're really looking to do is concatenate the results of both parsers. I think the
+          best way to do this is to lift <code>++</code> to an applicative context, but it's almost exactly the same
+          as what we did with cons, so I'll leave this as an easy exercise.
+        </p>
+        <p>
+          What we end up with is,
+        </p>
+        <pre>
+  pSpan isDigit <++> pDecimalPart :: Parser String</pre>
+        <p>
+          However this is not exactly correct, we have lost the ability to parse numbers without a decimal. To fix this,
+          we have say that if there is no decimal, we just return an empty string, the parser <code>pure ""</code>
+          captures the idea of the empty string, we consume zero input and return <code>""</code>. So we can write
+        </p>
+        <pre>
+  pSpan isDigit <++> (pDecimalPart <|> pure []) </pre>
+        <p>
+          The final part is to wrap this in our <code>Num</code> constructor, but we have a small problem,
+          <code>Num :: Float -> Expr</code>,
+          but we currently have a string, this is no problem, though we simply do
+        </p>
+        <pre>
+  read <$> pSpan isDigit <++> (pDecimalPart <|> pure []) </pre>
+        <p>
+          Now we can do
+        </p>
+        <pre>
+  pNum :: Parser Expr 
+  pNum = Num <$> read <$> pSpan isDigit <++> (pDecimalPart <|> pure []) </pre>
+        <p>
+          or slightly better,
+        </p>
+        <pre>
+  pNum = Num . read <$> pSpan isDigit <++> (pDecimalPart <|> pure []) </pre>
+        <p>
+          We can test this and see that (if you implemented <code>pDecimalPart</code> correctly) that we have another
+          successful parser!
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>sepBy1</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          To motivate this a bit, let's think about the expression <code>g(1, 5 + 4, x * 3)</code>. For this,
+          we need to repeatedly parse expressions seperated by commas. The concept of parsing a specific piece of the
+          grammar seperated by another piece of the grammar is a very common scenerio, so let's abstract it.
+        </p>
+        <p>
+          <code>sepBy1 :: Parser a -> Parser b -> Parser [a] </code> is the parser that parses tokens
+          from px seperated by tokens from py - note that it assumes that there is at least one token from px - eg
+        </p>
+        <pre>
+  > runParser (sepBy1 pInt pComma) "1,23,453" 
+  [1, 23, 453] 
+  > runParser (sepBy1 pInt pComma) "1" 
+  [1]
+  > runParser (sepBy1 pInt pComma) ""
+  Nothing</pre>
+        <p>
+          So how should we do this ? Well, generally if we have a grammar like this in EBNF form, it would be
+        </p>
+        <pre>
+  Int {',' Int} </pre>
+        <p>
+          where the curly brackets represent zero or more repititions. We can use this to motivate how we construct
+          the parser
+        </p>
+        <pre>
+  sepBy1 :: Parser a -> Parser b -> Parser [a]
+  sepBy1 px py = px <:> many (py *> px) </pre>
+        <p>
+          I've introduced a new symbol, <code>*> :: Applicative f => f a -> f b -> f b</code>, what this essentially
+          does
+          is sequentially peforms <code>py</code> then <code>px</code>, but throws away the result from the first and
+          just
+          returns the result from the second. So using the example of <code>sepBy1 pInt pComma</code>, we parse at least
+          one
+          integer, and then we try to repeatedly parse: a comma, followed by an integer. In the first example, we could
+          group it
+          like
+        </p>
+        <pre>
+  1    ,23    ,543</pre>
+        <p>
+          Hopefully from this it's more obivous why <code>sepBy1</code> works.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>sepBy</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          The problem with using this for our function arguments is that we could have a function with
+          zero arguments. This is precisly <code>sepBy</code>, it's very easy to define.
+        </p>
+        <pre>
+  sepBy :: Parser a -> Parser b -> Parser [a]
+  sepBy px py = sepBy1 px py <|> pure [] </pre>
+        <p>
+          This is basically the same logic as <code>sepBy1</code>, but if it fails to parse at least one
+          token for <code>px</code>, it just returns an empty list (or more pedantically, it returns
+          the parser that consumes no input and returns the empty list).
+        </p>
+        <pre>
+            > runParser (sepBy1 pInt pComma) "1,23,453" 
+            [1, 23, 453] 
+            > runParser (sepBy1 pInt pComma) "1" 
+            [1]
+            > runParser (sepBy1 pInt pComma) ""
+            []</pre>
+        <p>
+          Compare this with the results from <code>sepBy1</code>. This is also the logic behind how
+          <code>some</code> and <code>many</code> are defined in the applicative class.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>pFunApp</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Now we can easily parse our function applications. Let's assume that the rules for a function
+          name follow the rules of the variable names. For this reason, let's abstract out that part of
+          the logic from <code>pVar</code>, so we get
+        </p>
+        <pre>
+  pIdent :: Parser String 
+  pIdent = pAlpha <:> many (pAlphanumeric <|> pUnderscore)
+  
+  pVar :: Parser Expr 
+  pVar = Var <$> pIdent</pre>
+        <p>
+          So first we parse the function name, which is exactly <code>pIndent</code>, then we expect a
+          series of expressions separated by commas surrounded by brackets. Let's think about this in pieces.
+          First, let's think about the comma seperated expressions. One's first instinct might be to write
+        </p>
+        <pre>
+  sepBy pExpr (pChar ',')
+          </pre>
+        <p>
+          But the problem is that this will fail on <code>1, 2, 3</code> because of the whitespace. So what we really
+          want to do is parse whitespace where necessary between the commas. We can create a really simple whitespace
+          parser \<code>ws</code>, but I'll leave this as an exercise. So we can do
+        </p>
+        <pre>
+  sepBy pExpr (ws *> pChar ',' <* ws)</pre>
+        <p>
+          I've introduced another new operator <code><*</code>, this is like <code>*></code> - it sequentially executes
+          the
+          two actions, but it will throw away the second one instead of the first.
+          So now, <code>"1, 2, 3"</code> will successfully parse as we discard the whitespace
+          (note however that <code>" 1, 2, 3 "</code> doesn't, but
+          we will fix that soon.) and now we can surround it with brackets using
+        </p>
+        <pre>
+  '(' *> sepBy pExpr (ws *> pChar ',' <* ws) <* ')'</pre>
+        <p>
+          So we can now parse <code>"(1, 2, 3)"</code>, but the whitespace strikes again because
+          <code>"( 1, 2, 3)"</code>
+          will fail, so we fix this with
+        </p>
+        <pre>
+  '(' *> ws *> sepBy pExpr (ws *> pChar ',' <* ws) <* ws <* ')'</pre>
+        <p>
+          Now, we are ready to parse the entire function call
+        </p>
+        <pre>
+  pFuncApp :: Parser Expr 
+  pFuncApp = FuncApp <$> pIdent <*> (pChar '(') *> ws *> args <* ws <* ws <* (pChar ')')
+    where 
+      args = sepBy pExpr (ws *> pChar ',' <* ws)</pre>
+        <p>
+          Hopefully its clear how we've combined all of these, as a hint
+          <code>FuncApp :: String -> [Expr] -> Expr</code>,
+          so <code>FuncApp <$> pIdent :: Parser ([Expr] -> Expr)</code> which should make it a bit easier to understand.
+          This isnt the most attractive function ever, but we will introduce another parser which will improve this.
+        </p>
+        <p>
+          Let's try it out a bit - we cant actually try it as it is, because we haven't defined <code>pExpr</code> yet,
+          but I'll replace that with <code>pNum</code> for testing:
+        </p>
+        <pre>
+  > runParser pFuncApp "f(1, 2, 3)"
+  Just (FuncApp "f" [Num 1.0,Num 2.0,Num 3.0],"")
+  > runParser pFuncApp "f()"
+  Just (FuncApp "f" [],"")
+        </pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>pFuncDef</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Fortunately, this one shares a lot of similarities with <code>pFuncApp</code>. We already have the mechanisms
+          to do this. So first we want to parse an identifier, but we already have <code>pIdent</code>, then a list
+          of identifiers surrounded by brackets and seperated by commas - but thats extremely similar to what we did
+          in the last parser, and then we expect to parse an equals sign (that may be surrounded by whitespace),
+          but this is not needed to construct our Haskell data type, so we throw away the result, and finally,
+          we parse an expression on the right hand side of the equals sign.
+        </p>
+        <p>
+          If we apply this sequential reasoning, and then chain it together with
+          <code>FuncDef :: String -> [String] -> Expr -> Expr</code>,
+          it should be quite intuitive
+        </p>
+        <pre>
+  pFuncDef :: Parser FuncDef
+  pFuncDef = FuncDef 
+               <$> pIdent               
+               <*> betweenBrackets args 
+               <*  ws 
+               <*  pChar '='
+               <*  ws 
+               <*> pExpr 
+  where 
+    args = sepBy pIdent (ws *> pChar ',' <* ws)</pre>
+        <p>
+          Hopefully at this point you're starting to get the hang of how to apply functions in an applicative context.
+          As you can see, this function was actually not too difficult to implement, the work in building the smaller
+          parsers and combining them together.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Finishing notes</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          I think we've covered quite a lot in this, in the next tutorial, we will finish our grammar and introduce
+          slightly more complex
+          parsers. Feel free to let me know how you found this tutorial, I am always looking to improve the quality of
+          this website.
+        </p>
+        <p>
+          As a little summary, here are the important functions that we've covered so far that are useful when parsing
+          an language. In the
+          next tutorial there will be many more.
+        </p>
+        <pre>
+        satisfy :: (Char -> Bool) -> Parser Char
+        pSpan   :: (Char -> Bool) -> Parser String
+        (<:>)   :: Applicative f => f a -> f [a] -> f [a]
+        sepBy1  :: Parser a -> Parser b -> Parser [a]
+        sepBy   :: Parser a -> Parser b -> Parser [a]
+        between :: Parser a -> Parser b -> Parser c -> Parser c
+      </pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Exercises</h5>
+      </div>
+      <div class="nine columns">
+        <ol>
+          <li>
+            Define <code>satisfy</code> using <code>>>=</code>
+          </li>
+          <li>
+            Using <code>satisfy</code>, define <code>pAny :: Parser Char</code>, which
+            successfully parses any character, but fails if there is no input.
+          </li>
+          <li>
+            Write a parser to parse a "." followed by some digits. It should work on
+            ".123", ".01", but fail of "." and ".123a"
+          </li>
+          <li>
+            Write a function <code><++> :: Applicate f => f [a] -> f [a] -> f [a]</code>
+            that lifts concatentation to an applicative context.
+          </li>
+        </ol>
+      </div>
+    </div>
+
+
+
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+  </div>
+
+  <!-- End Document
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+</body>
+
+</html>

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+  <!-- Basic Page Needs
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta charset="utf-8">
+  <title>Home</title>
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+  <!-- Mobile Specific Metas
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- FONT
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link href='https://fonts.googleapis.com/css?family=Gelasio&display=swap' rel='stylesheet' type='text/css'>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+
+  <!-- CSS
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link rel="stylesheet" href="../css/normalize.css">  
+  <link rel="stylesheet" href="../css/skeleton.css">
+  <link rel="stylesheet" href="../css/custom.css">
+
+  <!-- Favicon
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <!-- <link rel="icon" type="image/png" href="images/favicon.png"> -->
+
+</head>
+<body>
+
+  <!-- Primary Page Layout
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <header>
+    <div class="six columns" id="introleftside">
+      <div class="eleven columns">
+        <h1 class="bigtitle">Writing our First Parser</h1>
+        <p class="smalltitle">A small tutorial by Theo Charalambous</p>
+      </div>
+    </div>
+    <div class="six columns" id="introrightside">
+      <div class="eleven columns" style="margin-left: 4%;">
+        <h3> The Parser Combinator Series </h3>
+        <a href="parsercombinator1.html">Chapter 1: Writing Our First Parser</a><br>
+        <a href="parsercombinator2.html">Chapter 2: Functors, Monads, Applicatives</a><br>
+        <a href="parsercombinator3.html">Chapter 3: Tools of the Trade</a><br>
+        <a href="parsercombinator4.html">Chapter 4: Combinating Parser Combinators</a><br> 
+      </div>
+    </div>
+  </header>
+  
+  <div class="container">
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Introduction</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Before we start, I need to give a thank you. I would like to thank 
+          Jamie Willis - a PhD student at Imperial College. He's very passionate about his study and 
+          an extremely good teacher, most of what I know about parser combinators comes from him.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Idea</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          To start, we need to be confident on what a parser actually is. A parser should take some 
+          string as an input, and return the parsed results. What the parsed result should look like 
+          is a philosophical question and open to many opinions, generally though it is represented 
+          as a tuple of what was parsed and what is remaining. The last thing to consider before we 
+          see our first type is what if we fail to parse a certain input, then we need our type to 
+          be able to represent that concept - there are two options for this, a list or a Maybe. My 
+          personal opinion on this is that a list is more suitable when the computation is non-deterministic,
+          meaning that we could get multiple results. To me it is not appropriate for our parsers to do this,
+          hence a Maybe is more appropriate, it represents a successful parse or a failure to parse.
+          What is our parsed result going to be, there are many options, so why don't we give ourselves 
+          the ability to parse a string to any type a.
+          Finally, we have a good idea of what we want:
+        </p>
+        <pre>
+    newtype Parser a = Parser (String -> Maybe (a, String)) </pre>
+        <p>
+          We wrap our parser with the keyword Parser, primarily for type safety and also for readability. 
+          However it would be a pain to always have to pattern match on this type, so let's make a 
+          function that'll let us extract the function:
+        </p>
+        <pre>
+    runParser :: Parser a -> (String -> Maybe (a, String))
+    runParser (Parser p) = p</pre>
+        <p>
+          The point of this is we can now use a parser by saying "runParser p input". This isn't an 
+          immediately obvious thing to do but it's a nice design pattern so I included it before 
+          we start writing any parsers just to make all of our lives a bit easier. However, now we 
+          are ready to create our first parser. We want to be able to parse a string, but let's start 
+          small and parse a character. After all, "the man who moves mountains begins by carrying away 
+          small stones" as Confucious once said.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Parsing a Character</h5> 
+      </div>
+      <div class="nine columns">
+        <p>
+          What should our little character parser look like. Well, we want to give it a character, and then 
+          it create a parser for that exact character - nothing else. The standard way of naming parsers is
+          to preppend a "p" to whatever the parser parses. So let's define the type for this thing.
+        </p>
+        <pre>
+    pChar :: Char -> Parser Char</pre>
+        <p>
+          Hopefully the type is clear, for example "pChar 'a'" will parse the character 'a' and nothing 
+          else. To work out how we should define our function, let's first begin by working out what our 
+          parser will do on certain inputs. We'll stick with the "pChar 'a'" example for now. If 
+          I give you the input "abcd", then I want you to success parse the 'a' and leave the rest, 
+          ie. Just ('a', "bcd"). What if I instead give you the input "dcba" ? Well, this should fail ! 
+          As far as "pChar 'a'" is concerned, it expected an 'a' and it got a 'd', hence it's failed its 
+          job and must return "Nothing". At this point, you should have a plan in your head on how to 
+          define this parser - we're going to pattern match on the first character and see if it 
+          is what we expect.
+          <pre>
+    pChar :: Char -> Parser Char
+    pChar a = Parser f
+      where 
+        f (c : cs) 
+          | c == a    = Just (c, cs)
+          | otherwise = Nothing 
+        f [] 
+          = Nothing</pre>
+          <p>
+            There's other ways to define this. If you thing this helper function is a bit clunky, 
+            the we can instead use:
+          </p>
+          <pre>
+    pChar :: Char -> Parser Char
+    pChar a = Parser (\inp -> 
+      case inp of 
+        c:cs -> if c == a then Just (c, cs) else Nothing 
+        []   -> Nothing )</pre>
+          <p>
+            Beauty is in the eye of the beholder, so I'll let you decide which one you prefer - I think
+            they're both nice.
+          </p>
+          <p>
+            You might wonder why we don't just return Just ('', "dcba") in the second case. The problem 
+            with this is that it gives the illusion of success, if we were to return a Just in this case,
+            this it makes it seem like the parser successful acquired the character it was made to parse, 
+            but this is clearly not the case - hence it's more representative to return Nothing - more 
+            convincing arguments will come soon, but hopefully this quenches any doubt for now.  
+          </p>
+          <p>
+            Let's try our parser ! 
+          </p>
+          <pre>
+    > runParser (pChar 'a') "asdf"
+    Just ('a', "sdf")
+    > runParser (pChar 'b') "asdf"
+    Nothing</pre>
+        <p>
+          It works ! It's a bit boring parsing just a single character though, I want to parse an entire 
+          sequence of characters.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Parsing a String</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Now that we've got a little bit of experience under our belts, 
+          we should have a suspicious about what <code>pString</code>
+          will do. Given a string, <code>pString</code> should create a parser 
+          that will parser that string - exactly like <code>pChar</code>. So 
+          our type looks like 
+        </p>
+        <pre>
+    pString :: String -> Parser String      </pre>
+        <p>
+          This parser is going to be the boss battle for this chapter, so let's plan our course of attack 
+          before we even attempt to code. If I have the parser <code>pString "he"</code> and I give it the 
+          input "hello", I expect the result to be <code>Just ("he", "llo")</code>. I advice you to have 
+          a little meditation on how you would approach this before reading on - but do not worry if you 
+          haven't got any ideas just yet, this is quite a bit harder than our first parser.
+        </p>
+        <p>
+          The wisdom of this parser comes from the observations that if we can successful parse the first 
+          character of "hello" using our parser from before, then this reduces to parsing the input "ello"
+          with the parser <code>pString "e"</code>, and then finally we have to parse the input "llo", with 
+          the parser <code>pString ""</code>, but this is easy ! The final parser just attempts to pass 
+          an empty string, and that succeeds just by doing nothing - it just parses the first 0 characters...
+        </p>
+        <p>
+          Perhaps this is slightly easier said than done though. But at least now we're ready to create 
+          an actionable battle plan. Like we did in <code>pChar</code>, we're going to need a helper 
+          function which will do all of the work - let's call it <code>pString'</code>, it's going to keep track of what part of the 
+          parse string it hasn't parsed yet, and what's remaining of the input string. I worry this 
+          might start to get a bit confusing, so let's bullet point what we expect to happen if we 
+          run <code>runParser (pString "he") "hello"</code>
+        </p>
+        <ul>
+          <li>We're going to call the helper function with <code>pString' "he" "hello"</code></li>
+          <li>Then we will try and parse "hello" with the first character of "he" -
+            this is exactly what <code>pChar 'h'</code> does. If it is successful, then we will try to 
+            parse "ello" with "e" - this is <code>pString' "e" "ello"</code>. If it is a failure,
+            then we just return Nothing because we were unsuccess it parsing the entire string.
+          </li>
+          <li>Our base case will be <code>pString' "" cs</code>, in which case we can return whatever 
+            we expect pString to return in the case of a success - in this case it'll be <code>Just ("he", "llo")</code>
+          </li>
+        </ul>
+        <p>
+          Hopefully now you can visualise what this function is going to look like. If it's still not clear,
+          have a little glimpse over the solution that I give and then try and implement it yourself - sometimes 
+          the best way to see how someone got a particular solution is to try and solve the problem yourself 
+          to get an idea of why some things do and don't work.
+        </p>
+  
+        <pre>
+    pString :: String -> Parser String
+    pString str = Parser (pString' str)
+      where 
+        pString' :: String -> String -> Maybe (String, String)
+        pString' (c : cs) inp
+          = case (runParser (pChar c) inp) of 
+              Just (r, rest) -> pString' cs rest
+              Nothing        -> Nothing 
+        pString' [] inp 
+          = Just (str, inp)</pre>
+        <p>
+          Let's give it a little try ! 
+        </p>
+        <pre>
+    > runParser (pString "hello") "hello"
+    Just ("hello", "")
+    > runParser (pString "hello") "ello"
+    Nothing
+    > runParser (pString "hello") "hello there!"
+    Just ("hello", " there!")</pre>
+        <p>
+          We've beat the first boss ! One small secret I kept from you is that there 
+          is a much better way to define both of these functions - but we're going to need 
+          to collect a lot more tools on our journey before we can attempt to improve these implementations.
+          This chapter serves as a little introduction to the idea of a parser - but the title of this 
+          series is parser <i>combinators</i>. This is merely the surface of what we can do in Haskell
+          with parsers. 
+        </p>
+        <p>
+          I'll end with a little trailer of what's to come - Haskell adopts a lot of 
+          concepts from category theory, especially a lot of the mathematical structures. We're 
+          going to give our parsers more structure so we can combine and transform parsers. From 
+          this we'll be able to define more and more complex parsers by simply combining small 
+          parsers in fun ways. I hope you enjoyed this little tutorial and I hope that you take it 
+          further because we're going to see some really beautiful functional programming.
+        </p>
+      </div>
+    </div>
+      
+      
+      
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+</div>
+
+<!-- End Document
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+</body>
+</html>
