@@ -103,6 +103,32 @@ header {
   width: 50%;
 }
 
+#page-left-banner {
+  background-color: #888888;
+  height: 100vh;
+  padding-top: 20vh;
+  padding-right: 3vh;
+}
+
+#page-left-banner > h1 {
+  color:  #f5f5f5;
+  font-size: 60px;
+  text-align: right;
+  margin-bottom: 0;
+}
+
+#page-left-banner > h2 {
+  color:  #f5f5f5;
+  font-size: 24px;
+  text-align: right;
+  font-family: 'Roboto', sans-serif;
+}
+
+#page-right-body {
+  padding-top: 20vh;
+  padding-right: 18vh;
+}
+
 p {
   font-family: 'Roboto', sans-serif;
 }
