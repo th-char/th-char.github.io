@@ -5,7 +5,7 @@
   <!-- Basic Page Needs
   –––––––––––––––––––––––––––––––––––––––––––––––––– -->
   <meta charset="utf-8">
-  <title>Functors, Monads, Applicatives</title>
+  <title>Home</title>
   <meta name="description" content="">
   <meta name="author" content="">
 
@@ -23,19 +23,6 @@
   <link rel="stylesheet" href="../css/skeleton.css">
   <link rel="stylesheet" href="../css/custom.css">
 
-  <!-- Maths
-  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
-  <script>
-    MathJax = {
-      tex: {
-        inlineMath: [['$', '$'], ['\\(', '\\)']]
-      }
-    };
-    </script>
-  <script type="text/javascript" id="MathJax-script" async
-    src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
-  </script>
-
   <!-- Favicon
   –––––––––––––––––––––––––––––––––––––––––––––––––– -->
   <!-- <link rel="icon" type="image/png" href="images/favicon.png"> -->
@@ -48,7 +35,7 @@
   <header>
     <div class="six columns" id="introleftside">
       <div class="eleven columns">
-        <h1 class="bigtitle">Functors, Monads, Applicatives</h1>
+        <h1 class="bigtitle">Tools of the Trade</h1>
         <p class="smalltitle">A tutorial by Theo Charalambous</p>
       </div>
     </div>
@@ -56,9 +43,9 @@
       <div class="eleven columns" style="margin-left: 4%;">
         <h3> The Parser Combinator Series </h3>
         <a href="parsercombinator1.html">Chapter 1: Writing Our First Parser</a><br>
-        <a href="parsercombinator2.html">Chapter 2: Functors, Monads, Applicatives</a><br>
-        <a href="parsercombinator3.html">Chapter 3: Tools of the Trade</a><br>
-        <a href="parsercombinator4.html">Chapter 4: Combinating Parser Combinators</a><br>
+        <a href="parsercombinator2.html">Chapter 2: Tools of the Trade</a><br>
+        <a href="parsercombinator3.html">Chapter 3: Combinating Parser Combinators</a><br>
+        <a href="parsercombinator4.html">Chapter 4: Folding Parsers</a><br>
       </div>
     </div>
   </header>
@@ -71,412 +58,261 @@
       </div>
       <div class="nine columns">
         <p>
-          There are a seemingly infinite supply of tutorials explaining what a monad is. Each of them have 
-          their own merits and applications - in this tutorial, I'm going to try and give a bit of background 
-          on the mathematics that inspires the Haskell concepts, and then explain their uses in Haskell - but 
-          more specifically, how we can define our parsers to be instances of functors, monads and applicatives.
+          Hello again, this tutorial is going to cover the instances for the functor, monad and applicative 
+          for parsers. Then, we can begin the action with some primitive combintors that we will be able 
+          to use to construct more complex parsers soon.  
         </p>
         <p>
-            This introduction is aimed at somebody with a mathematical background interesting in the theory 
-            behind these concepts. There are much better examples that approach this from a purely practical 
-            perspective.
+          Just as a little refresher, let's remind ourselves of the type of a parser.
+        </p>
+        <pre>
+    Parser a :: Parser (String -> Maybe (a, String))</pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Functor Instance</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          To begin, let's implement a functor instance for our parsers. This means that we will need to create 
+          a definition for <code>fmap :: (a -> b) -> Parser a -> Parser b</code>. Essentially, if we think of 
+          our parsers as structures that take strings and turn them into some value of type <code>a</code>,
+          then <code>fmap</code> so apply a function to the parser output to turn the output into a value 
+          of type <code>b</code>. Let's try and write this ! 
+        </p>
+        <pre>
+    instance Functor Parser where 
+      fmap (Parser p) f 
+        = Parser (\inp -> case (p inp) of 
+                            Just res -> Just (f res)
+                            Nothing  -> Nothing) </pre>
+        <p>
+          Hopefully it's clear what is happening here. If our original parser succeeds, then we take the result 
+          and apply <code>f</code> to it, but if the result fails, then we just return a failure. However,
+          we can make this much more elegant! The <code>Maybe</code> type is already a functor itself, 
+          so we can instead write 
+        </p>
+        <pre>
+    instance Functor Parser where 
+        fmap (Parser p) f = Parser (\inp -> f <$> p inp) 
+        -- Note that f <$> p inp === fmap f (p inp)</pre>
+        <p>
+          This is very useful in itself - see the first exercise to see how this can be used 
+          in practice. But the truth is that this is stepping stone to what we really want to 
+          do, which is make our parsers monadic.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Applicative Instance</h5> 
+      </div>
+      <div class="nine columns">
+        <p>
+          To implement an applicative instance we need to implement <code>pure</code> and <code><*></code>.
+          The definition for the former is not particularly complicated, the minimal definition is that 
+          <code>pure x</code> is the parser that doesn't parse anything, and returns <code>x</code>
+        </p>
+        <p>
+          Next we want to implement <code><*> :: Parser (a -> b) -> Parser a -> Parser b</code>. What 
+          this means is that the first parser returns a function when it successfully parses, so 
+          the semantics of <code><*></code> is that it creates a new parser that first parses 
+          the inout to return a function, then parses the remaining input to return a value 
+          of type <code>a</code>, and finally it returns a <code>Maybe (b, String)</code>
+          by applying the function to the term of type <code>a</code>. Hopefully this gives an 
+          intuition of how to chain these parsers together, let's first begin with a definition that 
+          is functionally correct, but terribly written:
+        </p>
+        <pre>
+    Parser a <*> Parser b 
+      = Parser $ \inp -> case res of 
+                     Nothing        -> Nothing 
+                     Just (f, inp') -> case res' of 
+                                         Nothing         -> Nothing 
+                                         Just (x, inp'') -> Just (f x, inp'')
+      where   
+        res  = a inp  
+        res' = b inp'</pre>
+        <p>
+          This is an extremely naive implementation, at each step we have to check if the 
+          computation has failed, which leads to these nested cases. Fortunately though, 
+          <code>Maybe</code> is the monad that represents the success or failure of a 
+          computation, and the implementation of its monadic functions represents this,
+          so we can simply use <code>do</code> notation in the context of the <code>Maybe</code>
+          monad to handle the case of a failed computation at any stage in the computation,
+          so putting these ideas together, along with the definition of <code>pure</code>, 
+          we get
+        </p>
+        <pre>
+    instance Applicative Parser where 
+      pure x = Parser $ \input -> Just (x, inp)
+
+      Parser p <*> Parser q
+        = Parser $ inp -> do 
+            (f, inp') <- p inp 
+            (x, inp'') <- q inp' 
+            return (f x, inp'')</pre>
+        <p>
+          Hopefully you can understand how this new implementation works, if not, it may be worth
+          experimenting with the <code>Maybe</code> monad for a bit - essentially though, if any 
+          step in the do notation returns a <code>Nothing</code>, the entire thing returns a 
+          <code>Nothing</code>.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Monad Instance</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Fortunately, the monad instance is very similar to the applicative instance, so we don't have to 
+          spend much time thinking about this one. <code>return</code> has to have the same definition as 
+          <code>pure</code>, so the only thing we must worry about is the definition of 
+          <code>(>>=) :: Parser a -> (a -> Parser b) -> Parser b</code>.
+        </p>
+        <p>
+          From the type signature of bind, we can kind of get a idea of what's going to happen. First, 
+          we parse the input to get a value of type <code>a</code>, then we use that to produce a 
+          <code>Parser b</code>, which we then use to parse the remaining input to produce a value of 
+          type <code>b</code>. Hopefully this gives a bit of an intuition and now we can look at 
+          implementation.
+        </p>
+        <pre>
+    instance Monad Parser where 
+      return = pure 
+      Parser a >>= f 
+        = Parser $ \inp -> do 
+            (x, inp') <- a inp 
+            let Parser b = f x
+            (y, inp'') <- b inp' 
+            return (y, inp'') </pre>
+        <p>
+          It's worth taking some time meditating on this to fully understand what's going on, but we 
+          use the monadic context of <code>Maybe</code> to catch failed computations like we did 
+          when we implemented the applicative instance.
+        </p>
+        <p>
+          For the most part, we want to use applicatives as much as possible as they give a static 
+          program structure, but monadic parsers allow us to perform branching execution like 
+          we would have in an if statement, look at the exercises for an example.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Alternative Instance</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          At this point, you are probably sick of defining instances for our parsers, but I promise 
+          this is the last one. Now, what even is an Alternative ? If you've never heard of it, let's 
+          ask ghci what Alternative is 
+        </p>
+        <pre>
+  > :i Alternative
+  class Applicative f => Alternative (f :: * -> *) where
+  empty :: f a
+  (<|>) :: f a -> f a -> f a
+  some :: f a -> f [a]
+  many :: f a -> f [a]
+  {-# MINIMAL empty, (<|>) #-} </pre>
+          <p>
+            Okay, so there's quite a bit going on here. If you search up alternatives in the  
+            <a href="https://hackage.haskell.org/package/base-4.6.0.1/docs/Control-Applicative.html#t:Alternative">Hackage documentation</a>,
+            it says that an Alternative is "a monoid on applicative functors." At this point, 
+            the algebraist is very happy, but for the non-algebraist, let's take a look at this functions 
+            and try to understand what's happening. 
+          </p>
+          <p>
+            A way to get an intuition for what's going on (although not the true mathematical way to 
+            understand the motivation behind the structure - but such is the way of Haskell, see monads...)
+            is to think of Alternative as defining a choice scheme for a type. <code>empty</code> refers 
+            to making no choice at all (the "nothing choice" probably captures the concept better),
+            and <code><|></code> refers to picking between two things, although generally we can see it 
+            as we try to pick the first argument, unless it returns a bad choice (what exactly a bad 
+            choice is depends on the implementation).
+          </p>
+          <p>
+            I think to understand this it would be useful to look at how Alternative is defined for 
+            <code>Maybe</code>. First, the nothing choice is very obviously <code>Nothing</code>,
+            and then 
+          </p>
+          <pre>
+  Just a  <|> _ = Just a 
+  Nothing <|> x = x  </pre>
+          <p>
+            So if the first choice is good, we pick that, otherwise we just choose whatever the second 
+            choice is - so if both a "bad" choices, then we return <code>Nothing</code>. 
+            However, we also have functions called <code>some</code> and <code>many</code>. They 
+            are both very similar: <code>many f</code> keeps running <code>f</code> until it fails
+            (ie zero or more times),
+            and <code>some f</code> tries to run <code>f</code> one or more times. I think it's a 
+            bit hard to understand with <code>Maybe</code>, but it's very clear with our parsers,
+            so we will go into more detail after we implement Alternative for our parsers.
+          </p>
+          <p>
+            The "nothing choice" in the context of parsers is the parser that always fails. Making a 
+            choice between two parsers corresponds to trying to parse the input with the first parser, 
+            and if that fails, trying with the second parser. What this looks like in code is 
+          </p>
+          <pre>
+  instance Alternatice Parser where 
+    empty = Parser $ \inp -> Nothing 
+    Parser p <|> Parser q 
+      = Parser $ \inp -> case p inp of 
+                           Just (x, inp) -> Just (x, inp)
+                           Nothing       -> q inp  </pre>
+          <p>
+            I wrote this implementation with the intention of being expressive, we can write a much 
+            prettier implementation though - the main improvement coming from the fact that <code>Maybe</code>
+            is already alternative so this pattern match is unneeded.
+          </p>
+          <pre>
+  instance Alternatice Parser where 
+    empty = Parser $ const Nothing
+    Parser p <|> Parser q = Parser $ \inp -> p inp <|> q inp</pre>
+          <p>
+            This is much more elegant, the good thing here is that we now have the ability to 
+            choose between parsers. We also now have <code>many</code> and <code>some</code>,
+            so <code>many p</code> creates a new parser that will repeatedly try and 
+            apply the parser <code>p</code> until it fails.
+          </p>
+          <p>
+            In terms of our parsers, the usefulness of alternatives are very intuitive, suppose we have a grammar like 
+          </p>
+          <pre>
+  Instruction := "Up" | "Down"</pre>
+          <p>
+            What this means is that an instruction can be <code>"Up"</code> <i>or</i> <code>"Down"</code>. 
+            We can encode the choice between the two options very simply, it would just be
+          <pre>
+  pInstruction = pUp <|> pDown</pre>
+          <p>
+            So as you might imagine, this is going to be ubiqutous throughout our entire parsing journey.
           </p>
       </div>
     </div>
 
     <div class="row">
-        <div class="three columns">
-          <h5>Functors</h5>
-        </div>
-        <div class="nine columns">
-          <p>
-            The concept of a functor in Haskell isn't too complicated to understand. Succinctly, a data type in 
-            Haskell is a functor if there is an explicitly defined way to penetrate the structure of the data 
-            type and apply a given function to the values contained within the type, without changing the structure.
-          </p>
-          <p>
-            The important function here is 
-          </p>
-          <pre>
-  fmap :: (a -> b) -> f a -> f b</pre>
-          <p>
-            In the type signature, <code>f</code> is the functor data type. So <code>f a</code> is the functor containing 
-            values of type <code>a</code>. So what this says is that with a function from <code>a</code> to <code>b</code>,
-            we can penetrate the structure of a functor to map the values of type <code>a</code> to values of type 
-            <code>b</code> using <code>f</code>.
-          </p>
-          <p>
-            At this point, some people might notice that there's no way to guarantee the structure of the data type is 
-            unchanged after applying <code>fmap</code>, but worry not, there are laws that a functor must satisfy.
-            They are 
-          </p>
-          <pre>
-  fmap id == id
-  fmap f . fmap g = fmap (f . g)</pre>
-          <p>
-            The first just says that if we map every value to itself, then it should be like we never touched the 
-            data structure. The second one says if we <code>fmap</code> two functions - one after the other - the result will be 
-            just like if we <code>fmap</code> both functions together. From this, you should have a little bit more trust 
-            that <code>fmap</code> does not directly changed anything about the data structure, only the function modifies 
-            the values.
-          </p>
-          <p>
-            Perhaps it's more obvious if we use some concrete examples. The first functor that you've been using without 
-            knowing is a list, even more is that you've been using <code>fmap</code> on lists this whole time! 
-            It turns out that the <code>fmap</code> defined on lists is actually just <code>map</code> - the slightly 
-            prettier twin. If we look at the type of <code>map</code>, we get
-          </p>
-          <pre>
-  map :: (a -> b) -> [a] -> [b]</pre>
-          <p>
-            What's the structure preservingness of this though ? Well, <code>[a]</code> is an ordered collection of objects of 
-            type <code>a</code> - we would want <code>fmap f xs</code> to maintain this order, that means that if 
-            <code>x</code> and <code>y</code> are elements of the list with the former coming before latter,
-            then <code>f x</code> comes before <code>f y</code> in the list. Another way to describe the structure 
-            presevation is that if <code>x</code> is the element at index <code>i</code> of <code>xs</code>, 
-            then <code>f x</code> is the element at position <code>i</code> of <code>fmap f xs</code> - and the 
-            length of the list is unchanged.
-          </p>
-          <p>
-            A classic example is the <code>Maybe</code> data type. Just as a little refresher, the definition is 
-          </p>
-          <pre>
-  Maybe a = Nothing | Just a </pre>
-          <p>
-            Hopefully you have some ideas of what the functor instance would look like here to penetrate the structure 
-          </p>
-          <pre>
-  fmap f Nothing  = Nothing 
-  fmap f (Just x) = Just (f x)</pre>
-          <p>
-            The structure is either nothingness or a container with a value inside. If we have nothingness, we simply 
-            maintain this nothingness. But if we have a container, we penetrate this container and apply our function.
-          </p>
-          <p>
-            Hopefully this gives an intuition for what a functor is <i>in Haskell</i>. Hopefully now when I say 
-            structure penetrating and structure preserving, it makes a bit more sense. When you make a data type in 
-            Haskell, one of the first things you want to do is to define a functor instance for it - it's a very 
-            common design pattern and provides incredibly elegant ways of doing things. 
-            The definition comes from category 
-            theory, I initially intended to explain what a functor was in category theory first before trying to apply 
-            it to the definition that we've gone through. Hoewever I decided that the most important takeaway to 
-            understand was that there is a notion of preserving structure - I'm not sure whether the category theory 
-            definition would give more intuition or confusion for most people.
-          </p>
-        </div>
+      <div class="three columns">
+        <h5>Finishing Up</h5>
       </div>
-
-      <div class="row">
-        <div class="three columns">
-          <h5>Motivation Behind Monads</h5>
-        </div>
-        <div class="nine columns">
-          <p>
-            A computation can do two things: it returns a value, and it produces side effects. Side effects occur when 
-            data outside of the local scope of the function is modified, for example, consider this C code 
-          </p>
-          <pre>
-  int numbersDoubled = 0;
-  
-  int doubleNumber(int x) {
-    numbersDouble += 1;
-    return x * 2;
-  } </pre>
-          <p>
-            The value returned is the doubled number, but this function has a side effect - it increments the value of the 
-            global variable <code>numbersDoubled</code>. That means that this function isn't pure, so there doesn't exist
-            a straightforward translation of this function into Haskell. Another important part of Haskell is 
-            <i>referential transparancy</i> - this is the idea that if I call a function with the same arguments, I 
-            should get the same result every time. It's easy to thing of functions which aren't referentially 
-            transparant in C 
-          </p>
-          <pre>
-  interest = 0.01; 
-
-  double compoundInterest(double base, int numYears) {
-    return base * ((1 + interest) ** numYears)
-  }</pre>
+      <div class="nine columns">
         <p>
-          This function doesn't have any side effects, but it isn't referentially transparent. If I call 
-          <code>compoundInterest(100, 5)</code>, then the value returned by this function will change depending on what the 
-          value of the global variable <code>interest</code>
+          This part of the series might not have been the most exciting, but we know have 
+          all the setup we need to start doing anything we could ever want to do with 
+          our parsers, now we can start constructing more and more exciting parsers 
+          to be able to parse an entire grammar!
         </p>
-        <p>
-          Unfortunately there is no easy translation of these functions into Haskell because they're pure functions. However, 
-          functions like this are ubiqutous all throughout programming, so it would be nice if we could write similar functions 
-          in Haskell. There's even bigger motivation to be able to do things like this, functions that take some input 
-          from the user's keyboard and process it are clearly not referentially transparent, or if you print some text 
-          onto the screen, then that's a side effect - so with our current model of Haskell, we can't do any IO!
-        </p>
-        <p>
-          The solution in functional programming is to do the computation inside of some "context" and then return 
-          a new context along with the return value. This might not immediately make sense if you've never heard of this 
-          idea before, so let's break it down using an example. We're going to try and solve this problem by considering 
-          the side effects of some code that "logs" its own activity. Consider the following Java code 
-        </p>
-        <pre>
-  String functionsCalled = "";
-
-  int double(int x) {
-    functionsCalled += "double, "
-    return x * 2;
-  }
-
-  bool isEven(int x) {
-    functionsCalled += "isEven, "
-    return x % 2 == 0;
-  }</pre>
-        <p>
-          The context of this function is the value of <code>functionsCalled</code>, so we need to have a type that 
-          represents this idea. What this example is doing is essentially just keeping a log - so let's make the 
-          type 
-        </p>
-        <pre>
-  Logger a = Logger String a </pre>
-          <p>
-            This represents a computation that has logged a string and returned a value of type <code>a</code>.
-            For example,
-          </p>
-          <pre>
-  triple :: Int -> Logger String Int 
-  triple x = Logger "triple, " (3 * x)
-
-  isEven :: Int -> Logger String Bool 
-  isEven x = Logger "isEven, " (even x) </pre>
-          <p>
-            Interestingly, we can see that these functions have no side effects. The side effects are contained 
-            within the return types. What these function type signatures are saying is that these functions 
-            take an <code>int</code> and return as a type representing a computation that has logged a string.
-            A useful thing that we're missing is the ability to chain together these computations, currently,
-            each computation seems completely disjoint from any other computation because we can't pass 
-            the <code>Logger</code> in as a parameter to each of the functions - i.e. if I call <code>triple 3</code>
-            and then <code>isEven 9</code>, then the side effects should produce the string <code>"triple, isEven, "</code>
-            , not just each one individually.
-          </p>
-          <p>
-            The first solution that comes to mind might just be to try and pass the <code>Logger</code> in as a parameter,
-            but this slightly changes the semantics of the function - it would mean that our function comsumes a <code>Logger</code>
-            to double a number, but this is not necessary, the function just needs a number. The problem lies in when 
-            we try to chain together sequential computations, so let's try and create a function that chains together 
-            computations. Suppose I have 
-          </p>
-          <pre>
-  f :: c -> Logger a
-  g :: a -> Logger b
-  x :: c </pre>
-          <p>
-            then <code>f x :: Logger a</code>, but unfortunately, this is not the correct type for us to be able to use <code>g</code>.
-            We need to somehow extract the value of type <code>a</code> from the logger, and then call the function again.
-            We also need to combine the side effects, but this is not too complicated, it's a simple string concatenation. 
-            If we want to compose two functions like this, we have to go through a lot of effort to unwrap them, so 
-            let's save ourselves some time and abstract this functionality. If it helps to conceptualise, run through this 
-            example by calling our tripling function then the evenness function (but let's keep the types as abstract as possible
-            to increase reusability).
-          </p>
-          <pre>
-  seqComp :: Logger a -> (a -> Logger b) -> Logger b
-  seqComp (Logger log y) g = Logger z (log ++ log')
-    where 
-      Logger z log' = g y </pre>
-          <p>
-            I didn't put much thought into the name of this function, because it's going to reappear with 
-            it's real name later. Hopefully it's clear what's going on. We just unwrap the input 
-            computation to get all of the component parts out 
-            and then recombine them in what makes semantic sense (and type checks). So now we can do 
-          </p>
-          <pre>
-  > triple 3 `seqComp` isEven 
-  Logger "triple, isEven, " False </pre>
-          <p>
-            and we've combined two computations with side effects!
-          </p>
-        </div>
       </div>
-
-      <div class="row">
-        <div class="three columns">
-          <h5>Monads</h5>
-        </div>
-        <div class="nine columns">
-          <p>
-            From before, we saw that we have a need to combine to functions that return values wrapped in the context of a 
-            <code>Logger</code>. Functions that wrap values inside of contexts are present all over code that needs to 
-            modify state - so the idea of sequential composition that we built using the logger example would really 
-            benefit us if we could generalise it to other, similar types. Finally, we can start to understand why 
-            monads appear everywhere - it's because they provide a really nice abstraction for the sequential 
-            composition that we defined before, and now I want to try and convince you of that.
-          </p>
-          <p>
-            Firstly, what is the mathematical definition of a monad ? Well, let's try not to delve into the 
-            category theory too much, but a monad is the tuple $(T, \eta, \mu)$ with $T : C \rightarrow C$,
-            $\eta : 1_C \rightarrow T$ and $\mu : T^2 \rightarrow T$. Here, $C$ is a category, $1_C$ 
-            is the identity functor on $C$ and $T$ is an endofunctor. Of course, there's a lot more to the 
-            definition, but 
-            we leave it at this for now and compare it to the corresponding functions in Haskell.
-          </p>
-          <p>
-            The Haskell equivalent of $(T, \eta, \mu)$ is <code>(m, return, join)</code> with 
-          </p>
-          <pre>
-  return :: a -> m a 
-  join :: m (m a) -> m a   </pre>
-          Also, another result from the category theory "equivalence" is that <code>m</code> must be a functor,
-          so we also have 
-          <pre>
-  fmap :: (a -> b) -> m a -> m b  </pre>
-          <p>
-            At this point you might be getting a bit confused as to what any of this has to do with what 
-            we talked about when we went through the example with <code>Logger</code>. Remember that the key 
-            motivation was the ability to compose the computations. Well, it turns out that this comes 
-            naturally from the definition of a monad in Haskell! Let's build it!
-          </p>
-          <p>
-            Recall the type of <code>seqComp</code> from before, let's generalise the type by replacing 
-            <code>Logger</code> by an arbitrary constructor which we will call <code>m</code>, and also 
-            let's use its real name: bind - represented by the infix function <code>>>=</code>. 
-            Let's begin by analysing the 
-            type of this generalised version of the function
-          </p>
-          <pre>
-  (>>=) :: m a -> (a -> m b) -> m b </pre>
-          <p>
-            So now, let's try and generate a definition of <code>x >>= f</code> that will type check. 
-            For reference, we have <code>x :: m a</code> and <code>f :: a -> m b</code>
-          </p>
-          <pre>
-  x >>= a = join (fmap f x) </pre>
-          <p>
-            It's quite concise, isn't it! I recommend you trying to convince yourself that the types 
-            match up by considering the composition of all of the functions. But the important thing 
-            here is that the <code>m a</code> corresponds to a value of type <code>a</code> wrapped in 
-            a context <code>m</code>. Even more important is that if <code>m</code> is a monad, then we 
-            get this sequential composition of the contexts for free!
-          </p>
-          <p>
-            What we've done is that we've shown that if a type is a monad, then we have a way to 
-            chain together the computations. Hopefully now, the idea of a monad makes sense. 
-            This means that we can define a plethora of features for monad abstraction and then get 
-            them for free if we can show that our type is a monad - but how do you do that ?
-            Well, if we are pedantic, we have to define <code>return</code> and <code>join</code>,
-            but realistically we will use <code>>>=</code> much more than <code>join</code>. So, 
-            in reality, we normally provide defitions of <code>return</code> and <code>>>=</code>
-            (see exercise 2 to convince yourself that this is okay).
-            You can think of <code>return</code> as wrapping a value in the most minimal context 
-            possible, so if we go back to the logger example, we would want to define 
-          </p>
-          <pre>
-  return :: a -> Logger a 
-  return x = Logger "" x          </pre>
-            <p>
-              But that's not enough to ensure that our types are monads, there's also some laws 
-              that they have to satisfy:
-            </p>
-            <pre>
-  (return x) >>= f  == f x 
-  m >>= return      == m 
-  (m >>= f) >>= g   == m >>= (\x -> f x >>= g) </pre>
-            <p>
-              The first is like a left identity rule - you can think of it as saying that if we wrap <code>x</code>,
-              in an empty context, then bind that to <code>f</code>, it's as if we just did f. The second is the 
-              right identity rule. It says that 
-              if we unwrap a context, then rewrap it, we get the original monad.
-              The final one is like an assosociativity rule.
-            </p>
-            <p>
-              Another thing that we get for free from a monad is <code>>> :: m a -> m b -> m b</code>, essentially, 
-              it sequentially composes two computations, and then throws away the result from the first result.
-              This is like sequencing in imperative languages and it's so common in Haskell that it has 
-              alternative notation, the code <code>m1 >> m2 >> m3</code> is equivalent to 
-            </p>
-            <pre>
-  do 
-    m1 
-    m2 
-    m3 </pre>
-            <p>
-              Hopefully now you're beginning to see what a monad represents. Essentially, it is a way to model a 
-              computation with side effects inside of a pure paradigm. I'll admit the best way to understand 
-              what they are is just to have a lot of practise using them - but if there's anything to take 
-              away, it's that they are a way to chain together computations sequentially and keep their 
-              side effects contained.
-            </p>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="three columns">
-          <h5>Applicatives</h5>
-        </div>
-        <div class="nine columns">
-          <p>
-            When we discussed monads, we talked a lot about sequential composition, the concept of ordered 
-            computation is actually intrinsic in the type of bind. If we look at 
-          </p>
-          <pre>
-  (>>=) :: m a -> (a -> m b) -> m b </pre>
-          <p>
-            then we have to perform the effects of the <code>m a</code> in order to get the <code>a</code>
-            which we can then apply to the second argument which takes an <code>a</code> as a parameter
-            and returns an <code>m b</code> which in turn has its own effects. The point is that the 
-            effects of the <code>m a</code> must come strictly before the effects of the <code>m b</code>,
-            but both have to be performed to get the final result.
-          </p>
-          <p>
-            At this point, the philosophers in the crowd wonder why we must bound our thinking by the shackles 
-            of time, and rightly so. There is another typeclass known as applicatives that don't impose an 
-            ordering on the order of effects. To try and convince you of this, look at the type of the following 
-            function defined on applicatives
-          </p>
-          <pre>
-  <**> :: m a -> m (a -> b) -> m b </pre>
-          <p>
-            It looks extremely similar to <code>>>=</code>, the difference is that the entirity of the function
-            that is the second argument is wrapped in some context. This means that we can evaluate the effects 
-            of <code>m (a -> b)</code>
-            independently of <code>m a</code> to retrieve the function with type <code>a -> b</code>, but 
-            at some point we have to evaluate both computations in order to produce the final result of type 
-            <code>m b</code>.
-          </p>
-          <p>
-            Applicatives are very similar to monads, the key difference is that they don't impose an 
-            ordering on the effects. It turns out actually that applicatives are a superclass of 
-            monads, every monad is also an applicative (but not vice versa). In a way, applicatives 
-            are more general than monads. 
-          </p>
-          <p>
-            The independence of effects means that the structure of applicative style programs is fixed,
-            in comparison, monads allow for branching depending on the effects of previous computations.
-            A result of the static programming of applicatives, the behaviour of code is known at 
-            compile time and this allows for much more optimisation - in contrast, the execution path 
-            of monadic computations is not known until runtime - hence it is generally better to use 
-            applicatives where possible.
-          </p>
-          <p>
-            So what do we need to create an applicative. The minimal definitions required - from which 
-            we can define everything else - are <code>pure</code> and <code><*></code> (which is 
-            the same as <code><**></code>, but with arguments reversed). <code>pure</code> is essentially 
-            the same as <code>return</code> from the monad interface - this is just an artifict from 
-            the development of Haskell.
-          </p>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="three columns">
-          <h5>Exercises</h5>
-        </div>
-        <div class="nine columns">
-          <ol>
-            <li>Consider the data type
-              <pre>
-  data BTree a = Leaf a | Node a (BTree a) (BTree a) </pre>
-              i.e. a non-empty binary tree. Define <code>fmap</code> on this data type.
-            </li>
-            <li> Define <code>join</code> in terms of <code>>>=</code>
-            </li>
-          </ol>
-        </div>
-      </div>
+    </div>
+      
       
       <br>
       <br>
