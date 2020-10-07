@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+  <!-- Basic Page Needs
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta charset="utf-8">
+  <title>The Precedence Parser</title>
+  <meta name="description" content="">
+  <meta name="author" content="">
+
+  <!-- Mobile Specific Metas
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- FONT
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link href='https://fonts.googleapis.com/css?family=Gelasio&display=swap' rel='stylesheet' type='text/css'>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,700;1,400&display=swap"
+    rel="stylesheet">
+
+  <!-- CSS
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <link rel="stylesheet" href="../css/normalize.css">
+  <link rel="stylesheet" href="../css/skeleton.css">
+  <link rel="stylesheet" href="../css/custom.css">
+
+  <!-- Favicon
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <!-- <link rel="icon" type="image/png" href="images/favicon.png"> -->
+
+</head>
+
+<body>
+
+  <!-- Primary Page Layout
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <header>
+    <div class="six columns" id="introleftside">
+      <div class="eleven columns">
+        <h1 class="bigtitle">Folding Parsers</h1>
+        <p class="smalltitle">A tutorial by Theo Charalambous</p>
+      </div>
+    </div>
+    <div class="six columns" id="introrightside">
+      <div class="eleven columns" style="margin-left: 4%;">
+        <h3> The Parser Combinator Series </h3>
+        <a href="parsercombinator1.html">Chapter 1: Writing Our First Parser</a><br>
+        <a href="parsercombinator2.html">Chapter 2: Tools of the Trade</a><br>
+        <a href="parsercombinator3.html">Chapter 3: Combinating Parser Combinators</a><br>
+        <a href="parsercombinator4.html">Chapter 4: Folding Parsers</a><br>
+        <a href="parsercombinator4.html">Chapter 5: The Precedence Parser</a><br>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Introduction</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Today we reach our final boss: the precedence parser. This is going to hopefully bring 
+          together all of the knowledge we have gathered so far and combine all of our expression 
+          parsers so that we can parse expressions with a variety of operations.
+        </p>
+        <p>
+          Here is a copy of our grammar and its Haskell encoding.
+        </p>
+        <pre>
+  SimpleExp := Num | '(' Exp ')'
+  Exp       := SimpleExp | UnOpExpr | BinOpExpr | FuncApp
+  UnOpExpr  := '-' SimpleExp
+             | 'sin' SimpleExp 
+             | 'cos' SimpleExp 
+             | 'tan' SimpleExp
+  BinOpExpr := Exp + Exp  -- lowest precedence
+             | Exp - Exp 
+             | Exp * Exp 
+             | Exp / Exp
+             | Exp ^ Exp  -- highest precedence
+  FuncDef   := Ident '(' [Var {', ' Var}] ')' '=' Exp
+  Var       := Ident
+  FuncApp   := Ident '(' [Exp {, Exp}] ')'
+  Ident     := String</pre>
+        <!--
+        <pre>
+  data Expr    = Num Float 
+               | VarExpr Var
+               | UnOpExpr UnOp Expr 
+               | BinOpExpr BinOp Expr Expr 
+               | FuncApp String [Expr]
+  data Var     = Var String
+  data UnOp    = Negate | Sin | Cos | Tan
+  data BinOp   = Add    | Sub | Mul | Div 
+  data FuncDef = FuncDef String [Var] Expr</pre> -->
+        <pre>
+  data Expr    = Num Float 
+               | Var String
+               | UnOpExpr UnOp Expr 
+               | BinOpExpr BinOp Expr Expr 
+               | FuncApp String [Expr]
+  data UnOp    = Negate | Sin | Cos | Tan
+  data BinOp   = Add    | Sub | Mul | Div | Exp
+  data FuncDef = FuncDef String [String] Expr
+        </pre>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Motivation</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Consider the following expression 
+        </p>
+        <pre>
+  1 * 2 + 3 ^ 4 / 5</pre>
+        <p>
+          It raises the question of how should we evaluate it? There are many options, for example:
+        </p>
+        <pre>
+  1 * (2 + (3 ^ (4 / 5)))
+  (((1 * 2) + 3) ^ 4) / 5
+  1 * (((2 + 3) ^ 4) / 5) </pre>
+        <p>
+          to name a few, but I propose that the correct version is:
+        </p>
+        <pre>
+  (1 * 2) + ((3 ^ 4) / 5) </pre>
+        <p>
+          As addition has the lowest precedence in this and exponention has the highest precedence.
+          Another example is the expression
+        </p>
+        <pre>
+  - 1 + sin 0.5 + 3</pre>
+        <p>
+          which should be evaluated as 
+        </p>
+        <pre>
+  ((- 1) + (sin 0.5)) + 3</pre>
+        <p>
+          as unary operations should have the highest precedence.
+        </p>
+        <p>
+          The precedence of operators vastly changes how the AST will be constructed when we parse 
+          a given string, so we need some way to encode the precedence. The idea is that we will 
+          keep a list of all of the unary and binary operations and the higher in the list an operation 
+          is, the higher its precedence. For example, all of the unary operations will be first, then 
+          exponentiation, then division and multiplication, then subtractions and addition.
+        </p>
+        <p>
+          Another important thing is the associativity of a binary operation, for example, 
+        </p>
+        <pre>
+  1 + 2 + 3 - 4</pre>
+        <p>
+          should be evaluated as 
+        </p>
+        <pre>
+  ((1 + 2) + 3) - 4 </pre>
+        <p>
+          There isn't any difference in the precedence of addition and subtraction, they are just 
+          evaluated so that they are left associative operations, hence, in our precedence list,
+          they should be at the same level (the same is true for multiplcation and division).
+          So this leads us to change our precedence list to 
+          be a 2D list that contains levels of operators with the same associativity and the 
+          level of a group of operators represents their precedence so that all operators in 
+          a group have the same precedence.
+        </p>
+        <p>
+          I think this is enough describing. Let's actually try and write some code of our ideas.
+          First let's begin with the groups of operators with the same precedence. We've already 
+          seen how this can be the case with binary operations with the same associativity (i.e. + and -),
+          but another case is unary operators (they should all have the same highest precedence).
+          So we can form the following type:
+        </p>
+        <pre>
+  data Level a
+    = BinOpL [Parser (a -> a -> a)]
+    | BinOpR [Parser (a -> a -> a)]
+    | Unary  [Parser (a -> a)]</pre>
+        <p>
+          Here we have encoded the concept of a level of precedence, now we can actually create our 
+          precedence list:
+        </p>
+        <pre>
+  precedenceTable :: [Level Expr]
+  precedenceTable 
+    = [ Unary  [ pNegate 
+               , pSin 
+               , pCos 
+               , pTan    ]
+      , BinOpR [ pExp    ]
+      , BinOpL [ pMul               
+               , pDiv    ]
+      , BinOpL [ pAdd               
+               , pSub    ] ] </pre>
+        <p>
+          Now that we have this, we need some parser that can actually utilise this information and 
+          parse an expression with the correct precedence and associativity. 
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Level Parsers</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Let's start small 
+          with this though and begin by making a parser that can parse a specific precedence level.
+          Specifically, we want to create a parser
+        </p>
+        <pre>
+  pLevel :: Parser a -> Level a -> Parser a
+  pLevel atom level = ??? </pre>
+        <p>
+          The first thing to note is that the way we parse will depend on what we are parsing, so 
+          let's pattern match on <code>level</code>. First we will try and parse a group of 
+          left associative operators, 
+        </p>
+        <pre>
+  pLevel atom (BinOpL ops) = ??? </pre>
+        <p>
+          So <code>ops :: [Parser (a -> a -> a)]</code>, and the intention is that we will successively 
+          parse atoms (which in our case is a number) seperated by a <code>op</code> in <code>ops</code>
+          and combine the expression such that the resulting AST is left associative. So for example, 
+          we should get
+        </p>
+        <pre>
+  > runParser (pNum (BinOpL [pAdd, pSub])) "1+2-3+4" 
+  ((1 + 2) - 3) + 4</pre>
+        <p>
+          You might notice now that this seems suspiciously like <code>chainl1</code>, so let's use that 
+          to our advantage. Before though, we were only able to parse a single left associative binary 
+          operator, we need some way to combine all of the possible operators into one parser that 
+          represents choice between them.
+        </p>
+        <p>
+          Our <code>choice</code> parser should take a list of parsers and combine into one 
+          parser where we successively try each parser until we find one that works. This sounds 
+          quite ripe for using alternatives, specifically <code>p1 <|> p2 <|> p3</code> will 
+          try <code>p1</code> first, then if that fails, it will try <code>p2</code>, 
+          then if that fails, <code>p3</code>. This is the choice between <code>p1</code>,
+          <code>p2</code> and <code>p3</code>.
+           This can be implemented either via recursion or 
+          as a fold, but I will leave this as an exercise.
+        </p>
+        <p>
+          So with this new combinator, we can write
+        </p>
+        <pre>
+  pLevel atom (BinOpL ops) = chainl1 atom (choice ops) </pre>
+        <p>
+          The exact same logic holds for right associative operations, and we get
+        </p>
+        <pre>
+          pLevel atom (BinOpR ops) = chainr1 atom (choice ops) </pre>
+        <p>
+          The final thing we need to do is
+        </p>
+        <pre>
+  pLevel atom (Unary ops) = ???</pre>
+        <p>
+          This one requires slightly more work, because it doesnt follow the same logic as the other two,
+          instead of atoms seperated by operators, what we are expecting is a chain of operators 
+          proceeding an atom, for example
+        </p>
+        <pre>
+  sin cos sin - 5 ==> sin (cos (sin (-5)))</pre>
+        <p>
+          This time we need a parser that will parse a chain of operators that is followed by an atom,
+          which we will call <code>chainPre :: Parser (a -> a) -> Parser a -> Parser a</code>, so 
+          let's take a quick detour and implement it.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>chainPre</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Succintly put, <code>chainPre op p</code> returns zero or more instances of <code>op</code>
+          followed by one instance of <code>p</code>. First, we will begin with a bit of a naive 
+          recursive, monadic solution.
+        </p>
+        <p>
+          Essentially the idea is that we can parse one <code>op</code> and then recursively call 
+          <code>chainPre op p</code> to parse the rest of the expression, and then compose the 
+          operator with the expression, i.e.
+        </p>
+        <pre>
+  chainPre :: Parser (a -> a) -> Parser a
+  chainPre op p = rest <|> p 
+    where 
+      rest = do 
+        f   <- op 
+        exp <- chainPre op p
+        return (f exp) </pre>
+        <p>
+          Hopefully it's clear how this works, if not, I advise you to step through it with a simple 
+          example, I extract the <code>rest</code> function just for the sake of clarity, and the <code><|> p</code>
+          deals with the base case when there are no more unary operators.
+        </p>
+        <p>
+          However, this is a bit clunky and we can definitely do better using combinators, specifically <code>many</code>
+          where <code>many op</code> will return to us a list of the unary operators it was able to parse and then we 
+          must parse an atom, so our idea is:
+        </p>
+        <pre>
+  chainPre = do 
+    fs <- many op
+    x  <- p 
+    return ??? </pre>
+        <p>
+          The question now is how do we combine the list of functions with the term. Let's consider a concrete 
+          example:
+        </p>
+        <pre>
+  String: "sin cos sin - 5"
+  fs:     [Sin, Cos, Sin, Negate]
+  x:      Num 5</pre>
+        <p>
+          What we want to produce is
+        </p>
+        <pre>
+          Sin (Cos (Sin (Negate (Num 5)))) </pre>
+        <p>
+          It is possible to write the desired function as an explicit recursion, ie
+        </p>
+        <pre>
+  chainPreHelper :: a -> [a -> a] -> a
+  chainPreHelper atom []       = atom 
+  chainPreHelper atom (f : fs) = f $ chainPreHelper atom fs</pre>
+        <p>
+          However, we can do a bit better than this. This looks suspiciously like a fold, with 
+        </p>
+        <pre>
+  chainPreHelper atom fs = foldr ??? atom fs</pre>
+        <p>
+          The question is what is the the function we are folding with. Well if we look at our original 
+          implementation of <code>chainPreHelper</code>, we use <code>($)</code> to combine a function 
+          with a value, so this leads us to write
+        </p>
+        <pre>
+  chainPreHelper atom fs = foldr ($) atom fs</pre>
+        <p>
+          So finally we get our slightly improved version of <code>chainPre</code>:
+        </p>
+        <pre>
+  chainPre = do 
+    fs <- many op
+    x  <- p 
+    return $ foldr ($) x fs </pre>
+        <p>
+          However, as always, we want to try and avoid monadic functions in favour for applicative ones, 
+          but the reason we rewrote <code>chainPre</code> is that it's much more ripe to create an 
+          applicative function with this logic. We first parse <code>many op</code> and then 
+          <code>p</code> like before, but now we need to be a bit more intelligent with how we apply 
+          the <code>foldr ($) :: a -> [a] -> a</code>. As we are parsing <code>many op</code> first, 
+          it makes sense to consider <code>flip (foldr ($)) :: [a] -> a -> a</code>. So now,
+          we can just do
+        </p>
+        <pre>
+          chainPre op p = flip (foldr ($)) <$> many op <*> p
+        </pre>
+        <p>
+          and that is all there is to it! So we can now do
+        </p>
+        <pre>
+  > runParser (chainPre pSin pNum) "sin sin sin 4"
+  Just (UnOpExpr Sin (UnOpExpr Sin (UnOpExpr Sin (Num 4.0))),"")</pre>
+        <p>
+          So now we are ready to finish up <code>pLevel</code>
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Back to pLevel</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Now that we have <code>chainPre</code>, we can do the case of when the level is a group 
+          of unary operators, and in a similar way to the binary operator cases, we end up with
+        </p>
+        <pre>
+  pLevel :: Parser a -> Level a -> Parser a 
+  pLevel atom (BinOpL ops) = chainl1 atom (choice ops)
+  pLevel atom (BinOpR ops) = chainr1 atom (choice ops)
+  pLevel atom (Unary  ops) = chainPre (choice ops) atom</pre>
+        <p>
+          and now we can test this with our example from before!
+        </p>
+        <pre>
+  >runParser (pLevel pNum (BinOpL [pAdd, pSub])) "1+2-3+4"
+  Just (BinOpExpr Add (BinOpExpr Sub (BinOpExpr Add (Num 1.0) 
+                                                    (Num 2.0)) 
+                                      (Num 3.0)) 
+                      (Num 4.0),"")</pre>
+        <p>
+          It works! So now all there is left to do is to incorporate this with our 
+          precedence table.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>The Precedence Table</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          We are ready to tackle our final parser!
+        </p>
+        <pre>
+  precedence :: [Level s a] -> Parser a -> Parser a
+  precedence levels atom = ???</pre>
+        <p>
+          Let's now think about how to approach this. We will use a similar trick to encoding precedence 
+          with EBNF, ie:
+        </p>
+        <pre>
+          exp    := exp + exp | term 
+          term   := term * term | factor
+          factor := ( exp ) | number</pre>
+        <p>
+          So basically this ensures that multiplication has a higher precedence than addition.
+          In a similar way we will use high precedence operations as the atom for lower precedence 
+          operations. For example, we will  
+        </p>
+        <pre>
+  pUnary  = pLevel pNum    (Unary [pNegate, pSin, pCos, pTan])
+  pExp'   = pLevel pUnary  (BinaryOpR [pExp])
+  pMulDiv = pLevel pExp'   (BinaryOpL [pMul, pDiv])
+  pAddSub = pLevel pMulDiv (BinaryOpL [pAdd, pSub])
+  pExpr   = pAddSub</pre>
+        <p>
+          Now you might notice that this is secretly a fold over our precedence table, so we end 
+          up with the parser
+        </p>
+        <pre>
+  precedence :: [Level a] -> Parser a -> Parser a
+  precedence levels atom = foldl pLevel atom levels</pre>
+        <p>
+          Note that we could change the <code>foldl</code> into a <code>foldl'</code> for performance 
+          benefits, but this is a bit beyond the scope of what we want to do - but I recommend 
+          reading about <code>foldl'</code> nonetheless.
+        </p>
+        <p>
+          We're actually almost completely finished with all the parsers we need to parse the grammar 
+          one thing from the grammar that we are missing is <code>pSimpleExpr</code>, so let's do that very quickly - 
+          it's quite straightforward, we just define it by following the grammar.
+        </p>
+        <pre>
+  pSimpleExpr :: Parser Expr
+  pSimpleExpr = ws *> (betweenBrackets pExpr <|> pNum <|> pFuncApp) <* ws</pre>
+        <p>
+          We don't actually have <code>pExpr</code> defined yet, but we define it to be mutually recursive 
+          with <code>pSimpleExpr</code> (which is the smallest atom in expressions), so we end up with
+        </p>
+        <pre>
+  pExpr = precedence precedenceTable pSimpleExpr</pre>
+        <p>
+          and finally, we are done! Let's run some complex examples: (note that I wrote some show 
+          instances for the expressions just so that they are easier to read).
+        </p>
+        <pre>
+  > runParser pExpr "1 + (2 + 3) + g(4) + f(2, 3)"
+  Just ((((1.0 + (2.0 + 3.0)) + g(4.0)) + f(2.0, 3.0)),"")
+
+  > runParser pExpr "5 + sin (5 * 3) + 3 * -7"
+  Just (((5.0 + (sin(5.0 * 3.0))) + (3.0 * (-7.0))),"")</pre>
+        <p>
+          So it looks like it all works well!
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Finishing notes</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          This is probably the most complex combination of parsers we're going to come across for the 
+          time being. We've successfully made parsers that can parse all parts of our grammar, 
+          namely <code>pExpr</code>, <code>pFuncDef</code>. Currently we do not have the ability 
+          to combine these two parsers into one parser, and in the next tutorial I will explain why,
+          and various ways to fix it. 
+        </p>
+      </div>
+    </div>
+
+
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+    <br>
+  </div>
+
+
+
+
+  <!-- End Document
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+</body>
+
+</html>

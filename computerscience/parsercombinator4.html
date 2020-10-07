@@ -259,6 +259,14 @@
           (empty) input, so instead <code>rest x</code> returns <code>pure x</code> which will consume no more input and
           return <code>x</code> - exactly as we expected.
         </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Applicative chainl1</h5>
+      </div>
+      <div class="nine columns">
         <p>
           However, we prefer applicative style programming as it is prime for static analysis (I'll explain this in
           detail later).
@@ -357,7 +365,7 @@
 
     <div class="row">
       <div class="three columns">
-        <h5>chainl1 (improved)</h5>
+        <h5>Improved Applicative chainl1</h5>
       </div>
       <div class="nine columns">
         <p>
@@ -513,6 +521,70 @@
         f <- op
         y <- chainr1 p op 
         return $ f x y</pre>
+        <p>
+          This sorts out the base case when the string to parse is just a single term, now we can test it and 
+          see it works!
+        </p>
+        <pre>
+  > runParser (chainr1 pNum pExp) "1^2^3"
+  Just ( BinOpExpr Exp (Num 1.0) 
+                       (BinOpExpr Exp (Num 2.0) 
+                                      (Num 3.0))
+        , "")</pre>
+        <p>
+          So it seems that <code>chainr1</code> it slightly easier than <code>chainl1</code>.
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Applicative chainr1</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          Like we did we <code>chainl1</code>, let's try and transform <code>chainl1</code> into an applicative 
+          function. It follows the same logic as the monadic version in that we parse a term, and then we 
+          try to parse an operator and then the rest of the expression, and if we cannot parse an operator, 
+          we simply return the number we parsed.
+        </p>
+        <p>
+          Let's break this down into steps - first, we want to parse an operator and then the rest of the 
+          expression, we can do this by 
+        </p>
+        <pre>
+  (flip <$> op) <*> chainr1 p op </pre>
+        <p>
+          Note that the recursive call to <code>chainr1 p op</code> represents the second argument of the 
+          binary operation, so we want to apply that as the second argument of <code>op</code> and this 
+          is why we flip it. Note that this has type <code>Parser (a -> a)</code>, and in order to apply 
+          the first argument, we can just do 
+        </p>
+        <pre>
+  p <**> ((flip <$> op) <*> chainr1 p op) </pre>
+        <p>
+          So we parse the first term and apply it after forming the <code>Parser (a -> a)</code>. However, 
+          like our original monadic version, this does not work for a single term. Hence, if parsing <code>op</code> 
+          fails, we need some fall back that will simply return the value of our first <code>p</code>, we can do 
+          this by
+        </p>
+        <pre>
+  chainr1 = p <**> (((flip <$> op) <*> chainr1 p op) <|> pure id) </pre>
+        <p>
+          Hopefully it is clear how this works. The first part of the alternative forms a function of type 
+          <code>Parser (a -> a)</code> that will add the argument as the left hand side of a partially applied 
+          binary operation, but if we fail to create a partially applied binary operation, then we simply create 
+          a <code>Parser (a -> a)</code> that returns our term.
+        </p>
+        <p>
+          We can now test this and see we get the exact same results as before
+        </p>
+        <pre>
+          > runParser (chainr1 pNum pExp) "1^2^3"
+          Just ( BinOpExpr Exp (Num 1.0) 
+                               (BinOpExpr Exp (Num 2.0) 
+                                              (Num 3.0))
+                , "")</pre>
       </div>
     </div>
 
@@ -522,10 +594,8 @@
       </div>
       <div class="nine columns">
         <p>
-          I think we've covered quite a lot in this, in the next tutorial, we will finish our grammar and introduce
-          slightly more complex
-          parsers. Feel free to let me know how you found this tutorial, I am always looking to improve the quality of
-          this website.
+          Once again we've covered quite a lot, in the next tutorial, we will reach our final boss that will put 
+          together all of the things that we've done so far.
         </p>
       </div>
     </div>
@@ -569,13 +639,6 @@
     <br>
     <br>
   </div>
-
-
-theocharalambous.co 
-theochar.com
-theo-char.com 
-th-char.com 
-tchar.com
 
 
 
