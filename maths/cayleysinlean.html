@@ -5,7 +5,7 @@
   <!-- Basic Page Needs
   –––––––––––––––––––––––––––––––––––––––––––––––––– -->
   <meta charset="utf-8">
-  <title>Home</title>
+  <title>Proving Cayley's Theorem in Lean</title>
   <meta name="description" content="">
   <meta name="author" content="">
 
@@ -23,6 +23,19 @@
   <link rel="stylesheet" href="../css/skeleton.css">
   <link rel="stylesheet" href="../css/custom.css">
 
+  <!-- Maths
+  –––––––––––––––––––––––––––––––––––––––––––––––––– -->
+  <script>
+    MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']]
+      }
+    };
+    </script>
+  <script type="text/javascript" id="MathJax-script" async
+    src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+  </script>
+
   <!-- Favicon
   –––––––––––––––––––––––––––––––––––––––––––––––––– -->
   <!-- <link rel="icon" type="image/png" href="images/favicon.png"> -->
@@ -32,28 +45,44 @@
 
   <!-- Primary Page Layout
   –––––––––––––––––––––––––––––––––––––––––––––––––– -->
-  <div class="container" top-margin="20%">
-    <div class="three columns">
-      <nav class="menu">
-      <ul>
-        <li><a href="../index.html">Home</a></li>
-        <li><a href="./index.html" class="current">Computer Science</a></li>
-        <li><a href="../maths/index.html">Maths</a></li>
-        <li><a href="../meditations/index.html">Meditations</a></li>
-        <li><a href="../art/index.html">Art</a></li>
-        <li><a href="../zenstories/index.html">Zen Stories</a></li>
-      </ul>
-      <p>by Theo <br>Charalambous</p>
-      </nav>
-      &nbsp;
+  <header>
+    <div class="twelve columns" id="introfull">
+      <div class="eleven columns">
+        <h1 class="bigtitle">Proving Cayley's Theorem in Lean</h1>
+        <p class="smalltitle">An explanation by Theo Charalambous</p>
+      </div>
     </div>
-    <div class="nine columns mainbody">
-      <h5>General</h5>
-      <a href="maths/maths-quotes.html">What is a Monad, Again...</a><br>
-      <a href="maths/maths-quotes.html">Applicatives</a><br>
-      <a href="maths/maths-quotes.html">Cayley's Theorem</a><br>
-      <a href="parsercombinator1.html">Chapter 1: Writing Our First Parser</a><br>
+  </header>
+
+  <div class="container">
+
+    <div class="row">
+      <div class="three columns">
+        <h5>Intro</h5>
+      </div>
+      <div class="nine columns">
+        <p>
+          I'm currently trying to finish <a href="provingintro.html"><u>this article</u></a> before starting this 
+          one, but <a href="https://github.com/th-char/cayleys_theorem/blob/master/src/cayleys.lean"><u>this file</u></a>
+          contains some of the proofs I wrote for Cayley's theorem. My intention is to describe the Lean proof 
+          in an understandable way and to show that it follows much the same intuition as we would use when 
+          proving Cayley's by hand.
+        </p>
+      </div>
     </div>
+      
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
+      <br>
 </div>
 
 <!-- End Document
